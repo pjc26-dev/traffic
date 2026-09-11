@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pallara &harr; Eight Mile Plains travel times</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+
+    --series-1: #2a78d6; /* blue   - route 1 */
+    --series-2: #eb6834; /* orange - route 2 */
+    --series-3: #1baf7a; /* aqua   - route 3 */
+
+    --seq-100: #cde2fb;
+    --seq-250: #86b6ef;
+    --seq-400: #3987e5;
+    --seq-550: #1c5cab;
+    --seq-700: #0d366b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: var(--text-secondary); font-size: 13px; margin: 0 0 20px; max-width: 640px; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 2px; }
+  .card .desc { color: var(--text-secondary); font-size: 12px; margin: 0 0 14px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .stat .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .label { color: var(--text-secondary); font-size: 12px; margin-top: 2px; }
+
+  .controls { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .controls label { font-size: 12px; color: var(--text-secondary); margin-right: 6px; }
+  .controls select, .controls button {
+    font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary);
+  }
+  .controls button { cursor: pointer; }
+  .controls button.active { background: var(--series-1); color: #fff; border-color: var(--series-1); }
+
+  svg { display: block; overflow: visible; font-family: inherit; }
+  .axis-label { fill: var(--text-muted); font-size: 10px; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .baseline { stroke: var(--baseline); stroke-width: 1; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--text-secondary); }
+  .legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; background: var(--text-primary); color: var(--page);
+    font-size: 11px; padding: 6px 8px; border-radius: 6px; transform: translate(-50%, -110%);
+    white-space: nowrap; opacity: 0; transition: opacity .1s;
+  }
+  .chart-holder { position: relative; }
+
+  .empty { color: var(--text-secondary); font-size: 13px; padding: 24px 0; text-align: center; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  th { color: var(--text-secondary); font-weight: 600; cursor: pointer; user-select: none; }
+  details summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); }
+
+  .heat-cell { stroke: var(--surface-1); stroke-width: 2; }
+  .heat-label { fill: var(--text-secondary); font-size: 10px; }
+</style>
+</head>
+<body>
+<div class="viz-root wrap">
+  <h1>Pallara &harr; Eight Mile Plains travel times</h1>
+  <p class="subtitle">
+    Google Maps' three suggested driving routes between a point in Pallara and
+    a point in Eight Mile Plains, sampled every 10 minutes, 7am&ndash;7pm
+    Brisbane time, on 11 weekdays (11&ndash;25 Sep 2026). Before midday: Pallara &rarr;
+    Eight Mile Plains. From midday: Eight Mile Plains &rarr; Pallara.
+  </p>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="card">
+    <h2>Travel time by day &amp; time of day</h2>
+    <p class="desc">Fastest of the three suggested routes, each 10-minute slot. Darker = slower. This is the quickest way to see which times get bad.</p>
+    <div id="heatmap"></div>
+  </div>
+
+  <div class="card">
+    <h2>One day, all three routes</h2>
+    <p class="desc">The dashed line marks midday, where the monitored direction flips.</p>
+    <div class="controls">
+      <div>
+        <label for="daySelect">Day</label>
+        <select id="daySelect"></select>
+      </div>
+      <button id="prevDay" type="button">&larr;</button>
+      <button id="nextDay" type="button">&rarr;</button>
+    </div>
+    <div class="chart-holder">
+      <svg id="lineChart"></svg>
+      <div class="tooltip" id="lineTooltip"></div>
+    </div>
+    <div class="legend" id="lineLegend"></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Raw readings table</summary>
+      <div style="max-height:400px; overflow:auto; margin-top:12px;">
+        <table id="dataTable"></table>
+      </div>
+    </details>
+  </div>
+</div>
+
+<script>
+const TARGET_DATES = [
+  '2026-09-11','2026-09-14','2026-09-15','2026-09-16','2026-09-17',
+  '2026-09-18','2026-09-21','2026-09-22','2026-09-23','2026-09-24',
+  '2026-09-25',
+];
+const ROUTE_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
+const ROUTE_COLORS_HEX = { light: ['#2a78d6','#eb6834','#1baf7a'], dark: ['#3987e5','#d95926','#199e70'] };
+
+function timeSlots() {
+  const out = [];
+  for (let m = 7*60; m <= 19*60; m += 10) {
+    out.push(String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'));
+  }
+  return out;
+}
+const SLOTS = timeSlots();
+
+function fmtTime(t) {
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h < 12 ? 'am' : 'pm';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2,'0')}${ampm}`;
+}
+function fmtDate(d) {
+  const dt = new Date(d + 'T00:00:00+10:00');
+  return dt.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Australia/Brisbane' });
+}
+
+async function main() {
+  let records = [];
+  try {
+    const res = await fetch('data/readings.json', { cache: 'no-store' });
+    records = await res.json();
+  } catch (e) {
+    console.error('Failed to load data', e);
+  }
+  renderStats(records);
+  renderHeatmap(records);
+  renderLineSection(records);
+  renderTable(records);
+}
+
+function renderStats(records) {
+  const days = new Set(records.map(r => r.date_brisbane));
+  const collectedDays = TARGET_DATES.filter(d => days.has(d)).length;
+  const latest = records.reduce((a, r) => (!a || r.timestamp_utc > a.timestamp_utc) ? r : a, null);
+  const slowest = records.reduce((a, r) => (!a || r.duration_minutes > a.duration_minutes) ? r : a, null);
+
+  const stats = [
+    { value: `${collectedDays}/${TARGET_DATES.length}`, label: 'Weekdays with data' },
+    { value: records.length, label: 'Total readings' },
+    { value: latest ? `${fmtDate(latest.date_brisbane)}, ${fmtTime(latest.time_brisbane)}` : '–', label: 'Latest reading' },
+    { value: slowest ? `${slowest.duration_minutes} min` : '–',
+      label: slowest ? `Slowest seen – ${fmtDate(slowest.date_brisbane)} ${fmtTime(slowest.time_brisbane)}` : 'Slowest seen' },
+  ];
+  document.getElementById('stats').innerHTML = stats.map(s =>
+    `<div class="stat"><div class="value">${s.value}</div><div class="label">${s.label}</div></div>`
+  ).join('');
+}
+
+function isDark() {
+  const attr = document.documentElement.getAttribute('data-theme');
+  if (attr === 'dark') return true;
+  if (attr === 'light') return false;
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+function renderHeatmap(records) {
+  const el = document.getElementById('heatmap');
+  if (records.length === 0) { el.innerHTML = '<div class="empty">No data yet. The first reading is expected weekday 7am Brisbane time – check back soon.</div>'; return; }
+
+  // fastest of the 3 routes per (date, time)
+  const best = {};
+  for (const r of records) {
+    const key = r.date_brisbane + '|' + r.time_brisbane;
+    if (!best[key] || r.duration_minutes < best[key]) best[key] = r.duration_minutes;
+  }
+  const values = Object.values(best);
+  const min = Math.min(...values), max = Math.max(...values);
+
+  const cellW = 11, cellH = 22, rowGap = 4, leftPad = 70, topPad = 16;
+  const width = leftPad + SLOTS.length * cellW + 10;
+  const height = topPad + TARGET_DATES.length * (cellH + rowGap);
+
+  const seq = ROUTE_COLORS_HEX[isDark() ? 'dark' : 'light'];
+  function colorFor(v) {
+    if (v == null) return 'transparent';
+    const t = max === min ? 0.5 : (v - min) / (max - min);
+    // interpolate along the blue sequential ramp: light -> dark
+    const stops = ['#cde2fb', '#86b6ef', '#3987e5', '#1c5cab', '#0d366b'];
+    const pos = t * (stops.length - 1);
+    const i = Math.min(stops.length - 2, Math.floor(pos));
+    const f = pos - i;
+    return mix(stops[i], stops[i+1], f);
+  }
+
+  let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
+  TARGET_DATES.forEach((d, ri) => {
+    const y = topPad + ri * (cellH + rowGap);
+    svg += `<text x="${leftPad - 8}" y="${y + cellH/2 + 3}" text-anchor="end" class="heat-label">${fmtDate(d)}</text>`;
+    SLOTS.forEach((t, ci) => {
+      const x = leftPad + ci * cellW;
+      const v = best[d + '|' + t];
+      const fill = colorFor(v);
+      const title = v != null ? `${fmtDate(d)} ${fmtTime(t)}: ${v} min` : `${fmtDate(d)} ${fmtTime(t)}: no data`;
+      svg += `<rect class="heat-cell" x="${x}" y="${y}" width="${cellW}" height="${cellH}" fill="${fill === 'transparent' ? 'var(--grid)' : fill}"><title>${title}</title></rect>`;
+    });
+  });
+  // time axis ticks every hour
+  SLOTS.forEach((t, ci) => {
+    if (t.endsWith(':00')) {
+      const x = leftPad + ci * cellW;
+      svg += `<text x="${x}" y="${height - 2}" text-anchor="middle" class="heat-label">${fmtTime(t)}</text>`;
+    }
+  });
+  svg += `</svg>`;
+  el.innerHTML = svg;
+
+  const legend = `<div class="legend">
+    <span><span class="swatch" style="background:#cde2fb"></span>${min} min</span>
+    <span><span class="swatch" style="background:#0d366b"></span>${max} min</span>
+    <span style="color:var(--text-muted)">Grey = no reading yet</span>
+  </div>`;
+  el.insertAdjacentHTML('beforeend', legend);
+}
+
+function mix(hexA, hexB, t) {
+  const a = hexToRgb(hexA), b = hexToRgb(hexB);
+  const r = Math.round(a[0] + (b[0]-a[0])*t);
+  const g = Math.round(a[1] + (b[1]-a[1])*t);
+  const bl = Math.round(a[2] + (b[2]-a[2])*t);
+  return `rgb(${r},${g},${bl})`;
+}
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n>>16)&255, (n>>8)&255, n&255];
+}
+
+let currentDayIndex = 0;
+let allRecords = [];
+
+function renderLineSection(records) {
+  allRecords = records;
+  const daysWithData = TARGET_DATES.filter(d => records.some(r => r.date_brisbane === d));
+  const select = document.getElementById('daySelect');
+  select.innerHTML = daysWithData.map(d => `<option value="${d}">${fmtDate(d)}</option>`).join('');
+  currentDayIndex = daysWithData.length - 1;
+  if (daysWithData.length === 0) {
+    document.getElementById('lineChart').outerHTML = '<div class="empty">No data yet.</div>';
+    return;
+  }
+  select.value = daysWithData[currentDayIndex];
+  select.addEventListener('change', () => {
+    currentDayIndex = daysWithData.indexOf(select.value);
+    drawLineChart(records, select.value);
+  });
+  document.getElementById('prevDay').addEventListener('click', () => {
+    currentDayIndex = Math.max(0, currentDayIndex - 1);
+    select.value = daysWithData[currentDayIndex];
+    drawLineChart(records, select.value);
+  });
+  document.getElementById('nextDay').addEventListener('click', () => {
+    currentDayIndex = Math.min(daysWithData.length - 1, currentDayIndex + 1);
+    select.value = daysWithData[currentDayIndex];
+    drawLineChart(records, select.value);
+  });
+  drawLineChart(records, select.value);
+}
+
+function drawLineChart(records, date) {
+  const svg = document.getElementById('lineChart');
+  const dayRecords = records.filter(r => r.date_brisbane === date);
+  const routeIndices = [...new Set(dayRecords.map(r => r.route_index))].sort();
+
+  const width = 900, height = 300, padL = 40, padR = 10, padT = 10, padB = 26;
+  const plotW = width - padL - padR, plotH = height - padT - padB;
+
+  const durations = dayRecords.map(r => r.duration_minutes);
+  const yMin = Math.max(0, Math.min(...durations) - 3);
+  const yMax = Math.max(...durations) + 3;
+
+  function x(slotIdx) { return padL + (slotIdx / (SLOTS.length - 1)) * plotW; }
+  function y(v) { return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; }
+
+  let s = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}">`;
+
+  // gridlines (horizontal, every 10 min)
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = yMin + (yMax - yMin) * (i / yTicks);
+    const yy = y(v);
+    s += `<line class="gridline" x1="${padL}" x2="${width-padR}" y1="${yy}" y2="${yy}" />`;
+    s += `<text class="axis-label" x="${padL - 6}" y="${yy + 3}" text-anchor="end">${Math.round(v)}</text>`;
+  }
+  // hour ticks
+  SLOTS.forEach((t, i) => {
+    if (t.endsWith(':00')) {
+      s += `<text class="axis-label" x="${x(i)}" y="${height - 6}" text-anchor="middle">${fmtTime(t)}</text>`;
+    }
+  });
+  // midday divider
+  const middayIdx = SLOTS.indexOf('12:00');
+  if (middayIdx >= 0) {
+    s += `<line x1="${x(middayIdx)}" x2="${x(middayIdx)}" y1="${padT}" y2="${padT+plotH}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3,3" />`;
+  }
+  s += `<line class="baseline" x1="${padL}" x2="${width-padR}" y1="${padT+plotH}" y2="${padT+plotH}" />`;
+
+  routeIndices.forEach((ri, idx) => {
+    const color = `var(--series-${idx+1})`;
+    const pts = SLOTS.map((t, si) => {
+      const rec = dayRecords.find(r => r.time_brisbane === t && r.route_index === ri);
+      return rec ? [si, rec.duration_minutes] : null;
+    }).filter(Boolean);
+    if (pts.length === 0) return;
+    const path = pts.map((p, i) => `${i===0?'M':'L'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+    s += `<path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" />`;
+    pts.forEach(p => {
+      s += `<circle cx="${x(p[0]).toFixed(1)}" cy="${y(p[1]).toFixed(1)}" r="2.5" fill="${color}" class="pt" data-route="${ri}" data-min="${p[1]}" data-slot="${SLOTS[p[0]]}" />`;
+    });
+  });
+
+  s += `</svg>`;
+  svg.outerHTML = s;
+  const newSvg = document.getElementById('lineChart') || svg;
+
+  // legend
+  const legend = document.getElementById('lineLegend');
+  legend.innerHTML = routeIndices.map((ri, idx) => {
+    const sample = dayRecords.find(r => r.route_index === ri);
+    const via = sample && sample.via ? ` &ndash; via ${sample.via}` : '';
+    return `<span><span class="swatch" style="background:var(--series-${idx+1})"></span>Route ${ri}${via}</span>`;
+  }).join('');
+
+  // tooltip
+  const tooltip = document.getElementById('lineTooltip');
+  document.querySelectorAll('#lineChart .pt').forEach(pt => {
+    pt.addEventListener('mouseenter', (e) => {
+      const min = pt.getAttribute('data-min');
+      const slot = pt.getAttribute('data-slot');
+      tooltip.textContent = `${fmtTime(slot)} – ${min} min`;
+      const rect = pt.getBoundingClientRect();
+      const parentRect = pt.closest('.chart-holder').getBoundingClientRect();
+      tooltip.style.left = (rect.left - parentRect.left + rect.width/2) + 'px';
+      tooltip.style.top = (rect.top - parentRect.top) + 'px';
+      tooltip.style.opacity = 1;
+    });
+    pt.addEventListener('mouseleave', () => { tooltip.style.opacity = 0; });
+  });
+}
+
+function renderTable(records) {
+  const table = document.getElementById('dataTable');
+  if (records.length === 0) { table.innerHTML = '<tr><td class="empty">No data yet.</td></tr>'; return; }
+  const cols = ['date_brisbane','time_brisbane','direction','route_index','duration_minutes','duration_text','distance_text','via'];
+  const labels = ['Date','Time','Direction','Route','Minutes','Duration','Distance','Via'];
+  let sortCol = 'date_brisbane', sortDir = -1;
+  function draw() {
+    const rows = [...records].sort((a,b) => {
+      const av = a[sortCol], bv = b[sortCol];
+      return av > bv ? sortDir : av < bv ? -sortDir : 0;
+    });
+    let html = '<thead><tr>' + cols.map((c,i) => `<th data-col="${c}">${labels[i]}${sortCol===c ? (sortDir>0?' ↑':' ↓') : ''}</th>`).join('') + '</tr></thead>';
+    html += '<tbody>' + rows.slice(0, 500).map(r => '<tr>' + cols.map(c => `<td>${r[c] ?? ''}</td>`).join('') + '</tr>').join('') + '</tbody>';
+    table.innerHTML = html;
+    table.querySelectorAll('th').forEach(th => th.addEventListener('click', () => {
+      const c = th.getAttribute('data-col');
+      if (sortCol === c) sortDir *= -1; else { sortCol = c; sortDir = 1; }
+      draw();
+    }));
+  }
+  draw();
+}
+
+main();
+</script>
+</body>
+</html>

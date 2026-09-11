@@ -1,0 +1,99 @@
+name: Collect travel times
+
+on:
+  schedule:
+    # Covers 7am-7pm Australia/Brisbane (UTC+10, no DST) with margin:
+    # 21:00-23:59 UTC = 7:00am-9:59am Brisbane (next day), 00:00-09:10 UTC = 10:00am-7:10pm Brisbane.
+    - cron: '*/10 21-23 * * *'
+    - cron: '*/10 0-9 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Bypass the weekday/time-window gate (for testing)'
+        required: false
+        default: 'false'
+        type: boolean
+      debug:
+        description: 'Dump scraped page text to the run log (echoes input street names - off by default)'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: collect-travel-times
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run collector
+        env:
+          FORCE_RUN: ${{ inputs.force == true && 'true' || 'false' }}
+          DEBUG_DUMP_PAGE_TEXT: ${{ inputs.debug == true && 'true' || 'false' }}
+          ORIGIN_ADDRESS: ${{ secrets.ORIGIN_ADDRESS }}
+          DEST_ADDRESS: ${{ secrets.DEST_ADDRESS }}
+        run: npm run collect
+
+      - name: Commit and push new data
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/readings.json
+          if git diff --cached --quiet; then
+            echo "No new data to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "Add travel time reading(s) $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            for attempt in 1 2 3 4; do
+              git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && break
+              echo "Push attempt $attempt failed, retrying..."
+              sleep $((attempt * 3))
+            done
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assemble site
+        if: steps.commit.outputs.changed == 'true'
+        run: |
+          mkdir -p _site
+          cp -r site/* _site/
+          mkdir -p _site/data
+          cp data/readings.json _site/data/readings.json
+
+      - name: Upload Pages artifact
+        if: steps.commit.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: steps.commit.outputs.changed == 'true'
+        uses: actions/deploy-pages@v4
