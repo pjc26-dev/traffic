@@ -204,9 +204,12 @@ const ROUTE_PAIRS = [
 const ROUTE_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
 const ROUTE_COLORS_HEX = { light: ['#2a78d6','#eb6834','#1baf7a'], dark: ['#3987e5','#d95926','#199e70'] };
 
+const WINDOW_START_MIN = 6 * 60; // 6:00am
+const WINDOW_END_MIN = 18 * 60; // 6:00pm
+
 function timeSlots() {
   const out = [];
-  for (let m = 7*60; m <= 19*60; m += 10) {
+  for (let m = WINDOW_START_MIN; m <= WINDOW_END_MIN; m += 10) {
     out.push(String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'));
   }
   return out;
@@ -220,7 +223,7 @@ const SLOTS = timeSlots();
 function roundToSlot(timeStr) {
   const [h, m] = timeStr.split(':').map(Number);
   let total = Math.round((h * 60 + m) / 10) * 10;
-  total = Math.max(7 * 60, Math.min(19 * 60, total));
+  total = Math.max(WINDOW_START_MIN, Math.min(WINDOW_END_MIN, total));
   return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
 }
 
@@ -269,7 +272,7 @@ function renderForRoute(routeId) {
   document.getElementById('pageTitle').textContent = `${ORIGIN_LABEL} ↔ ${pair.destLabel} travel times`;
   document.getElementById('pageSubtitle').textContent =
     `Google Maps' three suggested driving routes between a point in ${ORIGIN_LABEL} and a point in ${pair.destLabel}, ` +
-    `sampled every 10 minutes, 7am–7pm Brisbane time, on 11 weekdays (11–25 Sep 2026). ` +
+    `sampled every 10 minutes, 6am–6pm Brisbane time, on 11 weekdays (11–25 Sep 2026). ` +
     `Before midday: ${ORIGIN_LABEL} → ${pair.destLabel}. From midday: ${pair.destLabel} → ${ORIGIN_LABEL}.`;
 
   const records = allRecordsUnfiltered.filter(r => r.route_id === routeId);
@@ -307,7 +310,7 @@ function isDark() {
 
 function renderHeatmap(records) {
   const el = document.getElementById('heatmap');
-  if (records.length === 0) { el.innerHTML = '<div class="empty">No data yet. The first reading is expected weekday 7am Brisbane time – check back soon.</div>'; return; }
+  if (records.length === 0) { el.innerHTML = '<div class="empty">No data yet. The first reading is expected weekday 6am Brisbane time – check back soon.</div>'; return; }
 
   // fastest of the 3 routes per (date, slot)
   const best = {};

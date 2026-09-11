@@ -39,8 +39,8 @@ const TARGET_DATES = [
   '2026-09-18', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24',
   '2026-09-25',
 ];
-const WINDOW_START_MIN = 7 * 60; // 7:00am
-const WINDOW_END_MIN = 19 * 60; // 7:00pm
+const WINDOW_START_MIN = 6 * 60; // 6:00am
+const WINDOW_END_MIN = 18 * 60; // 6:00pm
 
 function getBrisbaneParts(date) {
   const fmt = new Intl.DateTimeFormat('en-CA', {
@@ -193,7 +193,7 @@ async function main() {
       return;
     }
     if (totalMin < WINDOW_START_MIN || totalMin > WINDOW_END_MIN) {
-      console.log('Outside the 7am-7pm Brisbane collection window. Skipping.');
+      console.log('Outside the 6am-6pm Brisbane collection window. Skipping.');
       return;
     }
   } else {

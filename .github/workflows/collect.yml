@@ -2,10 +2,10 @@ name: Collect travel times
 
 on:
   schedule:
-    # Covers 7am-7pm Australia/Brisbane (UTC+10, no DST) with margin:
-    # 21:00-23:59 UTC = 7:00am-9:59am Brisbane (next day), 00:00-09:10 UTC = 10:00am-7:10pm Brisbane.
-    - cron: '*/10 21-23 * * *'
-    - cron: '*/10 0-9 * * *'
+    # Covers 6am-6pm Australia/Brisbane (UTC+10, no DST) with margin:
+    # 20:00-23:59 UTC = 6:00am-9:59am Brisbane (next day), 00:00-08:10 UTC = 10:00am-6:10pm Brisbane.
+    - cron: '*/10 20-23 * * *'
+    - cron: '*/10 0-8 * * *'
   workflow_dispatch:
     inputs:
       force:
