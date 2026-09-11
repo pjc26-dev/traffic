@@ -22,10 +22,10 @@ const ORIGIN_LABEL = 'Pallara';
 const ORIGIN_ADDRESS = process.env.ORIGIN_ADDRESS;
 
 const ROUTES = [
-  { id: 'route1', destLabel: 'Eight Mile Plains', destEnv: 'DEST_ADDRESS' },
-  { id: 'route2', destLabel: 'Destination 2', destEnv: 'DEST_ADDRESS_2' },
-  { id: 'route3', destLabel: 'Destination 3', destEnv: 'DEST_ADDRESS_3' },
-  { id: 'route4', destLabel: 'Destination 4', destEnv: 'DEST_ADDRESS_4' },
+  { id: 'route1', destLabel: 'EMP', destEnv: 'DEST_ADDRESS' },
+  { id: 'route2', destLabel: 'Ox', destEnv: 'DEST_ADDRESS_2' },
+  { id: 'route3', destLabel: 'Da', destEnv: 'DEST_ADDRESS_3' },
+  { id: 'route4', destLabel: 'Co', destEnv: 'DEST_ADDRESS_4' },
 ];
 
 if (!ORIGIN_ADDRESS) {
