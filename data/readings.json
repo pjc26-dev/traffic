@@ -1,9 +1,10 @@
 [
   {
+    "route_id": "route1",
     "timestamp_utc": "2026-09-11T03:56:05.982Z",
     "date_brisbane": "2026-09-11",
     "time_brisbane": "13:56",
-    "direction": "emp_to_pallara",
+    "direction": "pm",
     "origin_label": "Eight Mile Plains",
     "dest_label": "Pallara",
     "route_index": 1,
@@ -13,10 +14,11 @@
     "via": "Learoyd Rd/State Route 30"
   },
   {
+    "route_id": "route1",
     "timestamp_utc": "2026-09-11T03:56:05.982Z",
     "date_brisbane": "2026-09-11",
     "time_brisbane": "13:56",
-    "direction": "emp_to_pallara",
+    "direction": "pm",
     "origin_label": "Eight Mile Plains",
     "dest_label": "Pallara",
     "route_index": 2,
@@ -26,10 +28,11 @@
     "via": "State Route 56"
   },
   {
+    "route_id": "route1",
     "timestamp_utc": "2026-09-11T03:56:05.982Z",
     "date_brisbane": "2026-09-11",
     "time_brisbane": "13:56",
-    "direction": "emp_to_pallara",
+    "direction": "pm",
     "origin_label": "Eight Mile Plains",
     "dest_label": "Pallara",
     "route_index": 3,
@@ -39,10 +42,11 @@
     "via": "State Route 30"
   },
   {
+    "route_id": "route1",
     "timestamp_utc": "2026-09-11T04:15:54.898Z",
     "date_brisbane": "2026-09-11",
     "time_brisbane": "14:15",
-    "direction": "emp_to_pallara",
+    "direction": "pm",
     "origin_label": "Eight Mile Plains",
     "dest_label": "Pallara",
     "route_index": 1,
@@ -52,10 +56,11 @@
     "via": "Learoyd Rd/State Route 30"
   },
   {
+    "route_id": "route1",
     "timestamp_utc": "2026-09-11T04:15:54.898Z",
     "date_brisbane": "2026-09-11",
     "time_brisbane": "14:15",
-    "direction": "emp_to_pallara",
+    "direction": "pm",
     "origin_label": "Eight Mile Plains",
     "dest_label": "Pallara",
     "route_index": 2,
@@ -65,10 +70,11 @@
     "via": "State Route 56"
   },
   {
+    "route_id": "route1",
     "timestamp_utc": "2026-09-11T04:15:54.898Z",
     "date_brisbane": "2026-09-11",
     "time_brisbane": "14:15",
-    "direction": "emp_to_pallara",
+    "direction": "pm",
     "origin_label": "Eight Mile Plains",
     "dest_label": "Pallara",
     "route_index": 3,
@@ -78,10 +84,11 @@
     "via": "State Route 30"
   },
   {
+    "route_id": "route1",
     "timestamp_utc": "2026-09-11T04:17:53.952Z",
     "date_brisbane": "2026-09-11",
     "time_brisbane": "14:17",
-    "direction": "emp_to_pallara",
+    "direction": "pm",
     "origin_label": "Eight Mile Plains",
     "dest_label": "Pallara",
     "route_index": 1,
@@ -91,10 +98,11 @@
     "via": "Learoyd Rd/State Route 30"
   },
   {
+    "route_id": "route1",
     "timestamp_utc": "2026-09-11T04:17:53.952Z",
     "date_brisbane": "2026-09-11",
     "time_brisbane": "14:17",
-    "direction": "emp_to_pallara",
+    "direction": "pm",
     "origin_label": "Eight Mile Plains",
     "dest_label": "Pallara",
     "route_index": 2,
@@ -104,10 +112,11 @@
     "via": "State Route 30"
   },
   {
+    "route_id": "route1",
     "timestamp_utc": "2026-09-11T04:17:53.952Z",
     "date_brisbane": "2026-09-11",
     "time_brisbane": "14:17",
-    "direction": "emp_to_pallara",
+    "direction": "pm",
     "origin_label": "Eight Mile Plains",
     "dest_label": "Pallara",
     "route_index": 3,

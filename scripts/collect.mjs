@@ -1,6 +1,6 @@
-// Scrapes Google Maps' "3 suggested routes" driving-time list between two fixed
-// addresses in Brisbane, on a schedule described in README.md, and appends
-// one record per route to data/readings.json.
+// Scrapes Google Maps' "3 suggested routes" driving-time list between fixed
+// address pairs in Brisbane, on a schedule described in README.md, and
+// appends one record per route per pair to data/readings.json.
 //
 // Why scraping instead of the Directions API: no Google Cloud billing/API key
 // was available for this project, so we drive a real Maps page instead.
@@ -13,16 +13,23 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_FILE = path.join(__dirname, '..', 'data', 'readings.json');
 
-// Suburb-only labels for anything public-facing (dashboard, data file) - the
-// exact street addresses used to query Google Maps are kept out of the repo
-// entirely and read from GitHub Actions secrets instead (see README.md).
+// Every route pair shares the same origin (one address, one secret). Labels
+// here are for the public dashboard/data file only - the exact addresses
+// are kept out of the repo entirely and read from GitHub Actions secrets
+// (see README.md). Destinations 2-4 use generic labels by request, so real
+// place names never appear in source, logs, or the dashboard.
 const ORIGIN_LABEL = 'Pallara';
-const DEST_LABEL = 'Eight Mile Plains';
 const ORIGIN_ADDRESS = process.env.ORIGIN_ADDRESS;
-const DEST_ADDRESS = process.env.DEST_ADDRESS;
 
-if (!ORIGIN_ADDRESS || !DEST_ADDRESS) {
-  console.error('ORIGIN_ADDRESS and DEST_ADDRESS must be set (see README.md - GitHub Actions secrets).');
+const ROUTES = [
+  { id: 'route1', destLabel: 'Eight Mile Plains', destEnv: 'DEST_ADDRESS' },
+  { id: 'route2', destLabel: 'Destination 2', destEnv: 'DEST_ADDRESS_2' },
+  { id: 'route3', destLabel: 'Destination 3', destEnv: 'DEST_ADDRESS_3' },
+  { id: 'route4', destLabel: 'Destination 4', destEnv: 'DEST_ADDRESS_4' },
+];
+
+if (!ORIGIN_ADDRESS) {
+  console.error('ORIGIN_ADDRESS must be set (see README.md - GitHub Actions secrets).');
   process.exit(1);
 }
 
@@ -119,17 +126,13 @@ async function dismissConsentIfPresent(page) {
   }
 }
 
-async function scrapeRoutes(origin, destination) {
-  const browser = await chromium.launch({
-    executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
-    headless: true,
+async function scrapeRoutes(browser, origin, destination) {
+  const context = await browser.newContext({
+    locale: 'en-AU',
+    timezoneId: 'Australia/Brisbane',
+    viewport: { width: 1366, height: 1000 },
   });
   try {
-    const context = await browser.newContext({
-      locale: 'en-AU',
-      timezoneId: 'Australia/Brisbane',
-      viewport: { width: 1366, height: 1000 },
-    });
     const page = await context.newPage();
     // Not logged: the URL (and Google's resolved redirect URL) embed both
     // addresses and, once resolved, their precise coordinates.
@@ -156,11 +159,9 @@ async function scrapeRoutes(origin, destination) {
     }
 
     const routes = parseRoutes(bodyText);
-    console.log('Parsed routes:', JSON.stringify(routes, null, 2));
-
-    return { routes };
+    return routes;
   } finally {
-    await browser.close();
+    await context.close();
   }
 }
 
@@ -188,7 +189,7 @@ async function main() {
 
   if (!force) {
     if (!TARGET_DATES.includes(dateStr)) {
-      console.log(`${dateStr} is not one of the 10 monitored weekdays. Skipping.`);
+      console.log(`${dateStr} is not one of the monitored weekdays. Skipping.`);
       return;
     }
     if (totalMin < WINDOW_START_MIN || totalMin > WINDOW_END_MIN) {
@@ -200,42 +201,85 @@ async function main() {
   }
 
   const beforeMidday = hour < 12;
-  const direction = beforeMidday ? 'pallara_to_emp' : 'emp_to_pallara';
-  const origin = beforeMidday ? ORIGIN_ADDRESS : DEST_ADDRESS;
-  const destination = beforeMidday ? DEST_ADDRESS : ORIGIN_ADDRESS;
-  const originLabel = beforeMidday ? ORIGIN_LABEL : DEST_LABEL;
-  const destLabel = beforeMidday ? DEST_LABEL : ORIGIN_LABEL;
+  const direction = beforeMidday ? 'am' : 'pm'; // am: origin -> dest, pm: dest -> origin
+  const timeBrisbane = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  const timestampUtc = now.toISOString();
 
-  console.log(`Direction: ${originLabel} -> ${destLabel} (${direction})`);
+  const activeRoutes = ROUTES.map(r => ({ ...r, destAddress: process.env[r.destEnv] }))
+    .filter(r => {
+      if (!r.destAddress) {
+        console.log(`Skipping ${r.id}: ${r.destEnv} is not set yet.`);
+        return false;
+      }
+      return true;
+    });
 
-  const { routes } = await scrapeRoutes(origin, destination);
-
-  if (routes.length === 0) {
-    console.error('No routes parsed from the page. Failing so this run is visible in the Actions log.');
+  if (activeRoutes.length === 0) {
+    console.error('No routes have both ORIGIN_ADDRESS and a destination secret set. Nothing to do.');
     process.exitCode = 1;
+    return;
   }
 
-  const timestampUtc = now.toISOString();
   const records = loadExistingData();
-
-  routes.forEach((route, i) => {
-    records.push({
-      timestamp_utc: timestampUtc,
-      date_brisbane: dateStr,
-      time_brisbane: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-      direction,
-      origin_label: originLabel,
-      dest_label: destLabel,
-      route_index: i + 1,
-      duration_minutes: route.duration_minutes,
-      duration_text: route.duration_text,
-      distance_text: route.distance_text,
-      via: route.via,
-    });
+  let anyRoutesParsed = false;
+  const browser = await chromium.launch({
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
+    headless: true,
   });
 
+  try {
+    for (const route of activeRoutes) {
+      const origin = beforeMidday ? ORIGIN_ADDRESS : route.destAddress;
+      const destination = beforeMidday ? route.destAddress : ORIGIN_ADDRESS;
+      const originLabel = beforeMidday ? ORIGIN_LABEL : route.destLabel;
+      const destLabel = beforeMidday ? route.destLabel : ORIGIN_LABEL;
+
+      console.log(`[${route.id}] ${originLabel} -> ${destLabel} (${direction})`);
+
+      let routes;
+      try {
+        routes = await scrapeRoutes(browser, origin, destination);
+      } catch (err) {
+        console.error(`[${route.id}] Failed to scrape:`, err.message);
+        continue;
+      }
+
+      console.log(`[${route.id}] Parsed routes:`, JSON.stringify(routes, null, 2));
+
+      if (routes.length === 0) {
+        console.error(`[${route.id}] No routes parsed from the page.`);
+        continue;
+      }
+      anyRoutesParsed = true;
+
+      routes.forEach((route_, i) => {
+        records.push({
+          route_id: route.id,
+          timestamp_utc: timestampUtc,
+          date_brisbane: dateStr,
+          time_brisbane: timeBrisbane,
+          direction,
+          origin_label: originLabel,
+          dest_label: destLabel,
+          route_index: i + 1,
+          duration_minutes: route_.duration_minutes,
+          duration_text: route_.duration_text,
+          distance_text: route_.distance_text,
+          via: route_.via,
+        });
+      });
+    }
+  } finally {
+    await browser.close();
+  }
+
   saveData(records);
-  console.log(`Appended ${routes.length} route reading(s). Total records: ${records.length}`);
+  console.log(`Total records: ${records.length}`);
+
+  if (!anyRoutesParsed) {
+    console.error('No route parsed successfully across any active route pair. Failing so this run is visible in the Actions log.');
+    process.exitCode = 1;
+  }
 }
 
 main().catch(err => {

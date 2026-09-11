@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pallara &harr; Eight Mile Plains travel times</title>
+<title>Pallara travel times</title>
 <style>
   .viz-root {
     color-scheme: light;
@@ -121,13 +121,15 @@
 </head>
 <body>
 <div class="viz-root wrap">
-  <h1>Pallara &harr; Eight Mile Plains travel times</h1>
-  <p class="subtitle">
-    Google Maps' three suggested driving routes between a point in Pallara and
-    a point in Eight Mile Plains, sampled every 10 minutes, 7am&ndash;7pm
-    Brisbane time, on 11 weekdays (11&ndash;25 Sep 2026). Before midday: Pallara &rarr;
-    Eight Mile Plains. From midday: Eight Mile Plains &rarr; Pallara.
-  </p>
+  <h1 id="pageTitle">Pallara travel times</h1>
+  <p class="subtitle" id="pageSubtitle"></p>
+
+  <div class="controls" id="routeControls" style="margin-bottom:16px;">
+    <div>
+      <label for="routeSelect">Route</label>
+      <select id="routeSelect"></select>
+    </div>
+  </div>
 
   <div class="stats" id="stats"></div>
 
@@ -150,6 +152,7 @@
     </div>
     <div class="chart-holder">
       <svg id="lineChart"></svg>
+      <div class="empty" id="lineEmpty" hidden>No data yet.</div>
       <div class="tooltip" id="lineTooltip"></div>
     </div>
     <div class="legend" id="lineLegend"></div>
@@ -170,6 +173,13 @@ const TARGET_DATES = [
   '2026-09-11','2026-09-14','2026-09-15','2026-09-16','2026-09-17',
   '2026-09-18','2026-09-21','2026-09-22','2026-09-23','2026-09-24',
   '2026-09-25',
+];
+const ORIGIN_LABEL = 'Pallara';
+const ROUTE_PAIRS = [
+  { id: 'route1', destLabel: 'Eight Mile Plains' },
+  { id: 'route2', destLabel: 'Destination 2' },
+  { id: 'route3', destLabel: 'Destination 3' },
+  { id: 'route4', destLabel: 'Destination 4' },
 ];
 const ROUTE_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
 const ROUTE_COLORS_HEX = { light: ['#2a78d6','#eb6834','#1baf7a'], dark: ['#3987e5','#d95926','#199e70'] };
@@ -194,6 +204,8 @@ function fmtDate(d) {
   return dt.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Australia/Brisbane' });
 }
 
+let allRecordsUnfiltered = [];
+
 async function main() {
   let records = [];
   try {
@@ -202,6 +214,29 @@ async function main() {
   } catch (e) {
     console.error('Failed to load data', e);
   }
+  allRecordsUnfiltered = records;
+
+  const routesWithData = new Set(records.map(r => r.route_id));
+  const select = document.getElementById('routeSelect');
+  select.innerHTML = ROUTE_PAIRS.map(r =>
+    `<option value="${r.id}">${ORIGIN_LABEL} &harr; ${r.destLabel}${routesWithData.has(r.id) ? '' : ' (no data yet)'}</option>`
+  ).join('');
+  const defaultRoute = ROUTE_PAIRS.find(r => routesWithData.has(r.id))?.id || 'route1';
+  select.value = defaultRoute;
+  select.addEventListener('change', () => renderForRoute(select.value));
+
+  renderForRoute(defaultRoute);
+}
+
+function renderForRoute(routeId) {
+  const pair = ROUTE_PAIRS.find(r => r.id === routeId) || ROUTE_PAIRS[0];
+  document.getElementById('pageTitle').textContent = `${ORIGIN_LABEL} ↔ ${pair.destLabel} travel times`;
+  document.getElementById('pageSubtitle').textContent =
+    `Google Maps' three suggested driving routes between a point in ${ORIGIN_LABEL} and a point in ${pair.destLabel}, ` +
+    `sampled every 10 minutes, 7am–7pm Brisbane time, on 11 weekdays (11–25 Sep 2026). ` +
+    `Before midday: ${ORIGIN_LABEL} → ${pair.destLabel}. From midday: ${pair.destLabel} → ${ORIGIN_LABEL}.`;
+
+  const records = allRecordsUnfiltered.filter(r => r.route_id === routeId);
   renderStats(records);
   renderHeatmap(records);
   renderLineSection(records);
@@ -305,33 +340,50 @@ function hexToRgb(hex) {
 }
 
 let currentDayIndex = 0;
-let allRecords = [];
+let currentRouteRecords = [];
+let currentDaysWithData = [];
+
+// Attached once - reads current state from the module-level vars above at
+// click-time, so switching routes never re-registers (and stacks) handlers.
+document.getElementById('daySelect').addEventListener('change', (e) => {
+  currentDayIndex = currentDaysWithData.indexOf(e.target.value);
+  drawLineChart(currentRouteRecords, e.target.value);
+});
+document.getElementById('prevDay').addEventListener('click', () => {
+  currentDayIndex = Math.max(0, currentDayIndex - 1);
+  const d = currentDaysWithData[currentDayIndex];
+  document.getElementById('daySelect').value = d;
+  drawLineChart(currentRouteRecords, d);
+});
+document.getElementById('nextDay').addEventListener('click', () => {
+  currentDayIndex = Math.min(currentDaysWithData.length - 1, currentDayIndex + 1);
+  const d = currentDaysWithData[currentDayIndex];
+  document.getElementById('daySelect').value = d;
+  drawLineChart(currentRouteRecords, d);
+});
 
 function renderLineSection(records) {
-  allRecords = records;
-  const daysWithData = TARGET_DATES.filter(d => records.some(r => r.date_brisbane === d));
+  currentRouteRecords = records;
+  currentDaysWithData = TARGET_DATES.filter(d => records.some(r => r.date_brisbane === d));
   const select = document.getElementById('daySelect');
-  select.innerHTML = daysWithData.map(d => `<option value="${d}">${fmtDate(d)}</option>`).join('');
-  currentDayIndex = daysWithData.length - 1;
-  if (daysWithData.length === 0) {
-    document.getElementById('lineChart').outerHTML = '<div class="empty">No data yet.</div>';
+  select.innerHTML = currentDaysWithData.map(d => `<option value="${d}">${fmtDate(d)}</option>`).join('');
+  currentDayIndex = currentDaysWithData.length - 1;
+
+  // Note: plain `.hidden` is unreliable on <svg> in some browsers (the IDL
+  // property and content attribute don't always stay in sync), so this
+  // toggles inline style.display directly instead.
+  const emptyEl = document.getElementById('lineEmpty');
+  const svgEl = document.getElementById('lineChart');
+  if (currentDaysWithData.length === 0) {
+    emptyEl.hidden = false;
+    svgEl.style.display = 'none';
+    svgEl.innerHTML = '';
+    document.getElementById('lineLegend').innerHTML = '';
     return;
   }
-  select.value = daysWithData[currentDayIndex];
-  select.addEventListener('change', () => {
-    currentDayIndex = daysWithData.indexOf(select.value);
-    drawLineChart(records, select.value);
-  });
-  document.getElementById('prevDay').addEventListener('click', () => {
-    currentDayIndex = Math.max(0, currentDayIndex - 1);
-    select.value = daysWithData[currentDayIndex];
-    drawLineChart(records, select.value);
-  });
-  document.getElementById('nextDay').addEventListener('click', () => {
-    currentDayIndex = Math.min(daysWithData.length - 1, currentDayIndex + 1);
-    select.value = daysWithData[currentDayIndex];
-    drawLineChart(records, select.value);
-  });
+  emptyEl.hidden = true;
+  svgEl.style.display = 'block';
+  select.value = currentDaysWithData[currentDayIndex];
   drawLineChart(records, select.value);
 }
 
@@ -350,7 +402,10 @@ function drawLineChart(records, date) {
   function x(slotIdx) { return padL + (slotIdx / (SLOTS.length - 1)) * plotW; }
   function y(v) { return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; }
 
-  let s = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}">`;
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', String(height));
+  let s = '';
 
   // gridlines (horizontal, every 10 min)
   const yTicks = 5;
@@ -387,9 +442,7 @@ function drawLineChart(records, date) {
     });
   });
 
-  s += `</svg>`;
-  svg.outerHTML = s;
-  const newSvg = document.getElementById('lineChart') || svg;
+  svg.innerHTML = s;
 
   // legend
   const legend = document.getElementById('lineLegend');
