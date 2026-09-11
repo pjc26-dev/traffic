@@ -2,7 +2,7 @@ name: Deploy dashboard to Pages
 
 on:
   push:
-    branches: [main]
+    branches: [claude/travel-time-monitoring-rmefgi]
     paths:
       - 'site/**'
       - 'data/**'
