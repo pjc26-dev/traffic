@@ -193,6 +193,17 @@ function timeSlots() {
 }
 const SLOTS = timeSlots();
 
+// Readings don't always land exactly on a 10-minute grid mark - a manual
+// test run fires whenever triggered, and even the real schedule can drift a
+// few minutes (documented GitHub Actions cron behavior). Bucket each
+// reading to its nearest slot so it still shows up on the grid-based charts.
+function roundToSlot(timeStr) {
+  const [h, m] = timeStr.split(':').map(Number);
+  let total = Math.round((h * 60 + m) / 10) * 10;
+  total = Math.max(7 * 60, Math.min(19 * 60, total));
+  return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+}
+
 function fmtTime(t) {
   const [h, m] = t.split(':').map(Number);
   const ampm = h < 12 ? 'am' : 'pm';
@@ -272,10 +283,10 @@ function renderHeatmap(records) {
   const el = document.getElementById('heatmap');
   if (records.length === 0) { el.innerHTML = '<div class="empty">No data yet. The first reading is expected weekday 7am Brisbane time – check back soon.</div>'; return; }
 
-  // fastest of the 3 routes per (date, time)
+  // fastest of the 3 routes per (date, slot)
   const best = {};
   for (const r of records) {
-    const key = r.date_brisbane + '|' + r.time_brisbane;
+    const key = r.date_brisbane + '|' + roundToSlot(r.time_brisbane);
     if (!best[key] || r.duration_minutes < best[key]) best[key] = r.duration_minutes;
   }
   const values = Object.values(best);
@@ -431,7 +442,7 @@ function drawLineChart(records, date) {
   routeIndices.forEach((ri, idx) => {
     const color = `var(--series-${idx+1})`;
     const pts = SLOTS.map((t, si) => {
-      const rec = dayRecords.find(r => r.time_brisbane === t && r.route_index === ri);
+      const rec = dayRecords.find(r => roundToSlot(r.time_brisbane) === t && r.route_index === ri);
       return rec ? [si, rec.duration_minutes] : null;
     }).filter(Boolean);
     if (pts.length === 0) return;
