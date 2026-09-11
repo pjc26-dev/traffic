@@ -16,9 +16,12 @@
     --baseline:       #c3c2b7;
     --border:         rgba(11,11,11,0.10);
 
-    --series-1: #2a78d6; /* blue   - route 1 */
-    --series-2: #eb6834; /* orange - route 2 */
-    --series-3: #1baf7a; /* aqua   - route 3 */
+    --series-1: #2a78d6; /* blue    - route 1 / Monday */
+    --series-2: #eb6834; /* orange  - route 2 / Tuesday */
+    --series-3: #1baf7a; /* aqua    - route 3 / Wednesday */
+    --series-4: #eda100; /* yellow  - Thursday */
+    --series-5: #e87ba4; /* magenta - Friday */
+    --fastest-line: #0b0b0b;
 
     --seq-100: #cde2fb;
     --seq-250: #86b6ef;
@@ -40,6 +43,9 @@
       --series-1: #3987e5;
       --series-2: #d95926;
       --series-3: #199e70;
+      --series-4: #c98500;
+      --series-5: #d55181;
+      --fastest-line: #ffffff;
     }
   }
   :root[data-theme="dark"] .viz-root {
@@ -55,6 +61,9 @@
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --fastest-line: #ffffff;
   }
 
   * { box-sizing: border-box; }
@@ -159,6 +168,17 @@
   </div>
 
   <div class="card">
+    <h2>Typical day of week</h2>
+    <p class="desc">Average of the quickest suggested route at each 10-minute slot, one line per weekday, averaged across every monitored date that falls on it.</p>
+    <div class="chart-holder">
+      <svg id="weekdayChart"></svg>
+      <div class="empty" id="weekdayEmpty" hidden>No data yet.</div>
+      <div class="tooltip" id="weekdayTooltip"></div>
+    </div>
+    <div class="legend" id="weekdayLegend"></div>
+  </div>
+
+  <div class="card">
     <details>
       <summary>Raw readings table</summary>
       <div style="max-height:400px; overflow:auto; margin-top:12px;">
@@ -214,6 +234,11 @@ function fmtDate(d) {
   const dt = new Date(d + 'T00:00:00+10:00');
   return dt.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Australia/Brisbane' });
 }
+function weekdayName(d) {
+  const dt = new Date(d + 'T00:00:00+10:00');
+  return dt.toLocaleDateString('en-AU', { weekday: 'long', timeZone: 'Australia/Brisbane' });
+}
+const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 let allRecordsUnfiltered = [];
 
@@ -251,6 +276,7 @@ function renderForRoute(routeId) {
   renderStats(records);
   renderHeatmap(records);
   renderLineSection(records);
+  renderWeekdaySection(records);
   renderTable(records);
 }
 
@@ -453,6 +479,24 @@ function drawLineChart(records, date) {
     });
   });
 
+  // The quickest of the 3 suggested routes at each slot - not the same
+  // physical route throughout, since which one is fastest can change over
+  // the course of the day. Drawn as a dashed neutral line, distinct from
+  // the 3 route colors since it's a derived summary, not its own route.
+  const fastestPts = SLOTS.map((t, si) => {
+    const matches = dayRecords.filter(r => roundToSlot(r.time_brisbane) === t);
+    if (matches.length === 0) return null;
+    const best = matches.reduce((a, r) => (r.duration_minutes < a.duration_minutes ? r : a));
+    return [si, best.duration_minutes, best.route_index];
+  }).filter(Boolean);
+  if (fastestPts.length > 0) {
+    const path = fastestPts.map((p, i) => `${i===0?'M':'L'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+    s += `<path d="${path}" fill="none" stroke="var(--fastest-line)" stroke-width="2" stroke-dasharray="5,3" stroke-linecap="round" />`;
+    fastestPts.forEach(p => {
+      s += `<circle cx="${x(p[0]).toFixed(1)}" cy="${y(p[1]).toFixed(1)}" r="2.5" fill="var(--fastest-line)" class="pt" data-route="fastest (Route ${p[2]})" data-min="${p[1]}" data-slot="${SLOTS[p[0]]}" />`;
+    });
+  }
+
   svg.innerHTML = s;
 
   // legend
@@ -461,7 +505,9 @@ function drawLineChart(records, date) {
     const sample = dayRecords.find(r => r.route_index === ri);
     const via = sample && sample.via ? ` &ndash; via ${sample.via}` : '';
     return `<span><span class="swatch" style="background:var(--series-${idx+1})"></span>Route ${ri}${via}</span>`;
-  }).join('');
+  }).join('') + (fastestPts.length > 0
+    ? `<span><span class="swatch" style="background:var(--fastest-line)"></span>Quickest available (route can change)</span>`
+    : '');
 
   // tooltip
   const tooltip = document.getElementById('lineTooltip');
@@ -470,6 +516,118 @@ function drawLineChart(records, date) {
       const min = pt.getAttribute('data-min');
       const slot = pt.getAttribute('data-slot');
       tooltip.textContent = `${fmtTime(slot)} – ${min} min`;
+      const rect = pt.getBoundingClientRect();
+      const parentRect = pt.closest('.chart-holder').getBoundingClientRect();
+      tooltip.style.left = (rect.left - parentRect.left + rect.width/2) + 'px';
+      tooltip.style.top = (rect.top - parentRect.top) + 'px';
+      tooltip.style.opacity = 1;
+    });
+    pt.addEventListener('mouseleave', () => { tooltip.style.opacity = 0; });
+  });
+}
+
+function renderWeekdaySection(records) {
+  const emptyEl = document.getElementById('weekdayEmpty');
+  const svgEl = document.getElementById('weekdayChart');
+  const legendEl = document.getElementById('weekdayLegend');
+
+  // Quickest of the 3 suggested routes per (date, slot) - same idea as the
+  // heatmap's "fastest" figure, just kept per-date here so it can be
+  // averaged within each weekday group next.
+  const bestByDateSlot = {};
+  for (const r of records) {
+    const key = r.date_brisbane + '|' + roundToSlot(r.time_brisbane);
+    if (!bestByDateSlot[key] || r.duration_minutes < bestByDateSlot[key]) bestByDateSlot[key] = r.duration_minutes;
+  }
+
+  const datesByWeekday = {};
+  for (const d of new Set(records.map(r => r.date_brisbane))) {
+    const wd = weekdayName(d);
+    (datesByWeekday[wd] ||= []).push(d);
+  }
+  const weekdaysPresent = WEEKDAY_ORDER.filter(wd => datesByWeekday[wd]);
+
+  if (weekdaysPresent.length === 0) {
+    emptyEl.hidden = false;
+    svgEl.style.display = 'none';
+    svgEl.innerHTML = '';
+    legendEl.innerHTML = '';
+    return;
+  }
+
+  // average across that weekday's dates, per slot
+  const avg = {}; // "weekday|slot" -> average minutes
+  for (const wd of weekdaysPresent) {
+    for (const t of SLOTS) {
+      const values = datesByWeekday[wd]
+        .map(d => bestByDateSlot[d + '|' + t])
+        .filter(v => v != null);
+      if (values.length > 0) avg[wd + '|' + t] = values.reduce((a, b) => a + b, 0) / values.length;
+    }
+  }
+
+  const allValues = Object.values(avg);
+  const yMin = Math.max(0, Math.min(...allValues) - 3);
+  const yMax = Math.max(...allValues) + 3;
+
+  const width = 900, height = 300, padL = 40, padR = 10, padT = 10, padB = 26;
+  const plotW = width - padL - padR, plotH = height - padT - padB;
+  function x(si) { return padL + (si / (SLOTS.length - 1)) * plotW; }
+  function y(v) { return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; }
+
+  svgEl.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svgEl.setAttribute('width', '100%');
+  svgEl.setAttribute('height', String(height));
+  let s = '';
+
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = yMin + (yMax - yMin) * (i / yTicks);
+    const yy = y(v);
+    s += `<line class="gridline" x1="${padL}" x2="${width-padR}" y1="${yy}" y2="${yy}" />`;
+    s += `<text class="axis-label" x="${padL - 6}" y="${yy + 3}" text-anchor="end">${Math.round(v)}</text>`;
+  }
+  SLOTS.forEach((t, i) => {
+    if (t.endsWith(':00')) {
+      s += `<text class="axis-label" x="${x(i)}" y="${height - 6}" text-anchor="middle">${fmtTime(t)}</text>`;
+    }
+  });
+  const middayIdx = SLOTS.indexOf('12:00');
+  if (middayIdx >= 0) {
+    s += `<line x1="${x(middayIdx)}" x2="${x(middayIdx)}" y1="${padT}" y2="${padT+plotH}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3,3" />`;
+  }
+  s += `<line class="baseline" x1="${padL}" x2="${width-padR}" y1="${padT+plotH}" y2="${padT+plotH}" />`;
+
+  weekdaysPresent.forEach((wd, idx) => {
+    const color = `var(--series-${idx+1})`;
+    const pts = SLOTS.map((t, si) => {
+      const v = avg[wd + '|' + t];
+      return v != null ? [si, v] : null;
+    }).filter(Boolean);
+    if (pts.length === 0) return;
+    const path = pts.map((p, i) => `${i===0?'M':'L'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+    s += `<path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" />`;
+    pts.forEach(p => {
+      s += `<circle cx="${x(p[0]).toFixed(1)}" cy="${y(p[1]).toFixed(1)}" r="2.5" fill="${color}" class="pt" data-wd="${wd}" data-min="${p[1].toFixed(1)}" data-slot="${SLOTS[p[0]]}" />`;
+    });
+  });
+
+  svgEl.innerHTML = s;
+  emptyEl.hidden = true;
+  svgEl.style.display = 'block';
+
+  legendEl.innerHTML = weekdaysPresent.map((wd, idx) => {
+    const n = datesByWeekday[wd].length;
+    return `<span><span class="swatch" style="background:var(--series-${idx+1})"></span>${wd} (${n} day${n>1?'s':''})</span>`;
+  }).join('');
+
+  const tooltip = document.getElementById('weekdayTooltip');
+  document.querySelectorAll('#weekdayChart .pt').forEach(pt => {
+    pt.addEventListener('mouseenter', () => {
+      const min = Number(pt.getAttribute('data-min')).toFixed(1);
+      const slot = pt.getAttribute('data-slot');
+      const wd = pt.getAttribute('data-wd');
+      tooltip.textContent = `${wd} ${fmtTime(slot)} – ${min} min avg`;
       const rect = pt.getBoundingClientRect();
       const parentRect = pt.closest('.chart-holder').getBoundingClientRect();
       tooltip.style.left = (rect.left - parentRect.left + rect.width/2) + 'px';
