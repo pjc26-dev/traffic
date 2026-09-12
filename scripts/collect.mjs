@@ -158,7 +158,8 @@ function saveData(records) {
 
 async function main() {
   const force = process.env.FORCE_RUN === 'true';
-  const { shouldRun, dateStr, hour, minute, reason } = decide(new Date(), force);
+  const now = new Date();
+  const { shouldRun, dateStr, hour, minute, reason } = decide(now, force);
 
   console.log(`Brisbane time now: ${dateStr} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
   console.log(reason);
