@@ -46,13 +46,22 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Check collection window
+        id: gate
+        env:
+          FORCE_RUN: ${{ inputs.force == true && 'true' || 'false' }}
+        run: node scripts/gate.mjs
+
       - name: Install dependencies
+        if: steps.gate.outputs.should_run == 'true'
         run: npm ci
 
       - name: Install Chromium
+        if: steps.gate.outputs.should_run == 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Run collector
+        if: steps.gate.outputs.should_run == 'true'
         env:
           FORCE_RUN: ${{ inputs.force == true && 'true' || 'false' }}
           DEBUG_DUMP_PAGE_TEXT: ${{ inputs.debug == true && 'true' || 'false' }}
