@@ -1,5 +1,21 @@
 name: Deploy dashboard to Pages
 
+# Deliberately its own workflow, separate from collect.yml, so a stuck Pages
+# deployment can only ever block future deployments - never data collection.
+# GitHub Pages enforces its own one-deployment-at-a-time lock on the
+# "github-pages" environment, independent of any concurrency group declared
+# here; a run that gets wedged waiting on that lock (observed once, for
+# ~30 hours) used to freeze the whole collect job, including scraping, back
+# when both lived together under one concurrency group. Now it can only
+# freeze this workflow, and even that self-heals: cancel-in-progress on the
+# group below means the next deploy attempt cancels a stuck one instead of
+# queueing behind it forever.
+#
+# Bot commits from collect.yml's GITHUB_TOKEN don't trigger the push event
+# below (GitHub suppresses that to prevent workflow loops), so workflow_run
+# is what actually fires after each collection run; push stays for the rare
+# case of a human editing site/ or data/ directly.
+
 on:
   push:
     branches: [claude/travel-time-monitoring-rmefgi]
@@ -7,6 +23,10 @@ on:
       - 'site/**'
       - 'data/**'
       - '.github/workflows/pages.yml'
+  workflow_run:
+    workflows: ["Collect travel times"]
+    types: [completed]
+    branches: [claude/travel-time-monitoring-rmefgi]
   workflow_dispatch: {}
 
 permissions:
@@ -16,19 +36,38 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+
+      - name: Determine whether to deploy
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" != "workflow_run" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            msg=$(git log -1 --pretty=%s)
+            if [[ "$msg" == "Add travel time reading(s)"* ]]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       - name: Assemble site
+        if: steps.check.outputs.changed == 'true'
         run: |
           mkdir -p _site
           cp -r site/* _site/
@@ -36,10 +75,12 @@ jobs:
           cp data/readings.json _site/data/readings.json
 
       - name: Upload artifact
+        if: steps.check.outputs.changed == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
+        if: steps.check.outputs.changed == 'true'
         uses: actions/deploy-pages@v4

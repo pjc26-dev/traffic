@@ -18,17 +18,25 @@ messages); they only ever belong in the GitHub secret values below.
 
 ## How it works
 
-- `.github/workflows/collect.yml` runs on a GitHub Actions schedule roughly
-  every 10 minutes. `scripts/collect.mjs` checks the current Brisbane time;
-  outside the monitored dates/hours it exits immediately. When in-window, it
+- `.github/workflows/collect.yml` runs every 10 minutes (an external pinger
+  hits its `workflow_dispatch` on a schedule of its own, since GitHub's
+  native `schedule:` trigger proved too unreliable at this frequency).
+  `scripts/gate.mjs` runs first and checks the current Brisbane time; outside
+  the monitored dates/hours the rest of the job is skipped in a couple of
+  seconds, before installing Chromium. When in-window, `scripts/collect.mjs`
   loops over every route pair that has both secrets set, drives headless
   Chromium (Playwright) to Google Maps' directions page for each, and parses
   the three suggested routes' durations. Route pairs whose destination
   secret isn't set yet are skipped (logged, not a failure), so adding a new
   one later just requires adding its secret &mdash; no code change. Results
-  are appended to `data/readings.json`, tagged with a `route_id`; new data
-  is committed back to the repo and the dashboard redeployed to GitHub Pages
-  in the same job.
+  are appended to `data/readings.json`, committed back to the repo.
+- `.github/workflows/pages.yml` redeploys the dashboard, triggered after
+  `collect.yml` finishes (plus on a direct push to `site/`or `data/`, and
+  manually via "Run workflow"). It's a separate workflow, deliberately: a
+  stuck GitHub Pages deployment can then only ever block future deployments,
+  never data collection, and its concurrency group is set to cancel a stuck
+  deploy the moment the next one starts rather than queue behind it
+  indefinitely (this happened once, for about 30 hours, before the split).
 - `site/index.html` is the dashboard: a route selector, a heatmap of the
   fastest route by day and time, a per-day chart of all three routes, and a
   raw data table &mdash; all filtered to the selected route pair.

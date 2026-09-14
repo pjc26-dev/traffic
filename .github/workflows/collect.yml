@@ -21,8 +21,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: collect-travel-times
@@ -32,9 +30,6 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,7 +75,6 @@ jobs:
           git add data/readings.json
           if git diff --cached --quiet; then
             echo "No new data to commit."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             git commit -m "Add travel time reading(s) $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             for attempt in 1 2 3 4; do
@@ -88,24 +82,4 @@ jobs:
               echo "Push attempt $attempt failed, retrying..."
               sleep $((attempt * 3))
             done
-            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Assemble site
-        if: steps.commit.outputs.changed == 'true'
-        run: |
-          mkdir -p _site
-          cp -r site/* _site/
-          mkdir -p _site/data
-          cp data/readings.json _site/data/readings.json
-
-      - name: Upload Pages artifact
-        if: steps.commit.outputs.changed == 'true'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        if: steps.commit.outputs.changed == 'true'
-        uses: actions/deploy-pages@v4
