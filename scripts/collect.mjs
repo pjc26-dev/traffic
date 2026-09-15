@@ -83,6 +83,46 @@ function parseRoutes(fullText) {
   return deduped.slice(0, 3);
 }
 
+function parseKm(distanceText) {
+  const m = /^([\d.]+)/.exec(distanceText || '');
+  return m ? Number(m[1]) : null;
+}
+
+function median(nums) {
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// Occasionally a route's page picks up a result for a different, much closer
+// or further-away place (seen in practice: a handful of readings for one
+// route pair came back with the distance and road names of a totally
+// different pair - Google Maps' known-quantity for that day's roads is a
+// physical distance, so it shouldn't vary more than ~50% from that pair's
+// own established distance the way a genuine alternate route can; a bigger
+// swing than that is a sign the scrape picked up the wrong page content
+// rather than a real alternate). Needs at least 5 prior readings for the
+// route before it has anything to judge against, so a newly added route
+// pair isn't filtered against no history.
+function dropImplausibleRoutes(routeId, candidates, priorRecords) {
+  const priorKm = priorRecords
+    .filter(r => r.route_id === routeId)
+    .map(r => parseKm(r.distance_text))
+    .filter(v => v != null);
+  if (priorKm.length < 5) return candidates;
+
+  const med = median(priorKm);
+  const lo = med / 1.5, hi = med * 1.5;
+  return candidates.filter(c => {
+    const d = parseKm(c.distance_text);
+    const implausible = d == null || d < lo || d > hi;
+    if (implausible) {
+      console.log(`  Dropping implausible route for ${routeId}: ${c.duration_text}, ${c.distance_text} via ${c.via} (expected roughly ${lo.toFixed(1)}-${hi.toFixed(1)} km for this pair).`);
+    }
+    return !implausible;
+  });
+}
+
 async function dismissConsentIfPresent(page) {
   const selectors = [
     'button:has-text("Accept all")',
@@ -211,6 +251,8 @@ async function main() {
       }
 
       console.log(`[${route.id}] Parsed routes:`, JSON.stringify(routes, null, 2));
+
+      routes = dropImplausibleRoutes(route.id, routes, records);
 
       if (routes.length === 0) {
         console.error(`[${route.id}] No routes parsed from the page.`);
