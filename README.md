@@ -2,7 +2,7 @@
 
 Scrapes Google Maps' three suggested driving routes between a point in
 **Pallara** and up to four separate destinations, every 10 minutes,
-6am&ndash;6pm Australia/Brisbane time, on 11 weekdays (11&ndash;25 Sep 2026).
+6am&ndash;6pm Australia/Brisbane time, every weekday, with no end date.
 Every route pair shares the same schedule:
 
 - Before midday: Pallara &rarr; destination
@@ -26,10 +26,11 @@ messages); they only ever belong in the GitHub secret values below.
   seconds, before installing Chromium. When in-window, `scripts/collect.mjs`
   loops over every route pair that has both secrets set, drives headless
   Chromium (Playwright) to Google Maps' directions page for each, and parses
-  the three suggested routes' durations. Route pairs whose destination
+  the three suggested routes' durations. Weekends are skipped. Route pairs whose destination
   secret isn't set yet are skipped (logged, not a failure), so adding a new
   one later just requires adding its secret &mdash; no code change. Results
-  are appended to `data/readings.json`, committed back to the repo.
+  are appended to that month's file, `data/readings-YYYY-MM.json` (one file
+  per month, so no file grows without bound), and committed back to the repo.
 - `.github/workflows/pages.yml` redeploys the dashboard, triggered after
   `collect.yml` finishes (plus on a direct push to `site/`or `data/`, and
   manually via "Run workflow"). It's a separate workflow, deliberately: a

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { decide } from './gate.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_FILE = path.join(__dirname, '..', 'data', 'readings.json');
+const DATA_DIR = path.join(__dirname, '..', 'data');
 
 // Every route pair shares the same origin (one address, one secret). Labels
 // here are for the public dashboard/data file only - the exact addresses
@@ -182,18 +182,30 @@ async function scrapeRoutes(browser, origin, destination) {
   }
 }
 
-function loadExistingData() {
-  if (!existsSync(DATA_FILE)) return [];
+// One file per calendar month (Brisbane) so the data never outgrows GitHub's
+// 100 MB file limit and each run only reads/rewrites a small file.
+function monthFile(month) {
+  return path.join(DATA_DIR, `readings-${month}.json`);
+}
+
+function previousMonth(month) {
+  const [y, m] = month.split('-').map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+}
+
+function loadMonth(month) {
+  const file = monthFile(month);
+  if (!existsSync(file)) return [];
   try {
-    return JSON.parse(readFileSync(DATA_FILE, 'utf8'));
+    return JSON.parse(readFileSync(file, 'utf8'));
   } catch {
     return [];
   }
 }
 
-function saveData(records) {
-  mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  writeFileSync(DATA_FILE, JSON.stringify(records, null, 2) + '\n');
+function saveMonth(month, records) {
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileSync(monthFile(month), JSON.stringify(records, null, 2) + '\n');
 }
 
 async function main() {
@@ -226,7 +238,11 @@ async function main() {
     return;
   }
 
-  const records = loadExistingData();
+  const month = dateStr.slice(0, 7);
+  const records = loadMonth(month);
+  // Read-only: lets the implausible-route check still have history in the
+  // first days of a new month.
+  const priorMonthRecords = loadMonth(previousMonth(month));
   let anyRoutesParsed = false;
   const browser = await chromium.launch({
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
@@ -252,7 +268,7 @@ async function main() {
 
       console.log(`[${route.id}] Parsed routes:`, JSON.stringify(routes, null, 2));
 
-      routes = dropImplausibleRoutes(route.id, routes, records);
+      routes = dropImplausibleRoutes(route.id, routes, [...priorMonthRecords, ...records]);
 
       if (routes.length === 0) {
         console.error(`[${route.id}] No routes parsed from the page.`);
@@ -281,7 +297,7 @@ async function main() {
     await browser.close();
   }
 
-  saveData(records);
+  saveMonth(month, records);
   console.log(`Total records: ${records.length}`);
 
   if (!anyRoutesParsed) {

@@ -51,9 +51,17 @@ jobs:
         if: steps.gate.outputs.should_run == 'true'
         run: npm ci
 
+      # Retried because the apt mirrors it pulls from occasionally return a
+      # transient error (a 403 from packages.microsoft.com failed a run once).
       - name: Install Chromium
         if: steps.gate.outputs.should_run == 'true'
-        run: npx playwright install --with-deps chromium
+        run: |
+          for attempt in 1 2 3; do
+            npx playwright install --with-deps chromium && exit 0
+            echo "Chromium install attempt $attempt failed, retrying..."
+            sleep $((attempt * 5))
+          done
+          exit 1
 
       - name: Run collector
         if: steps.gate.outputs.should_run == 'true'
@@ -72,7 +80,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/readings.json
+          git add data
           if git diff --cached --quiet; then
             echo "No new data to commit."
           else

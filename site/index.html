@@ -146,7 +146,7 @@
 
   <div class="card">
     <h2>Travel time by day &amp; time of day</h2>
-    <p class="desc">Fastest of the three suggested routes, each 10-minute slot. Darker = slower. This is the quickest way to see which times get bad.</p>
+    <p class="desc">Fastest of the three suggested routes, each 10-minute slot, for the latest 15 weekdays. Darker = slower. This is the quickest way to see which times get bad.</p>
     <div id="heatmap"></div>
   </div>
 
@@ -191,11 +191,44 @@
 </div>
 
 <script>
-const TARGET_DATES = [
-  '2026-09-11','2026-09-14','2026-09-15','2026-09-16','2026-09-17',
-  '2026-09-18','2026-09-21','2026-09-22','2026-09-23','2026-09-24',
-  '2026-09-25',
-];
+// Data is stored one file per month (data/readings-YYYY-MM.json). Months run
+// from the first one collected up to the current one; a month with no file
+// yet (e.g. the first day of a new month) simply 404s and is skipped.
+const FIRST_MONTH = '2026-09';
+const HEATMAP_WEEKDAYS = 15;
+
+// Only Monday-Friday is monitored (same rule as scripts/gate.mjs); any
+// weekend readings that exist in the data are ignored everywhere below.
+function isWeekday(d) {
+  const day = new Date(d + 'T00:00:00Z').getUTCDay();
+  return day >= 1 && day <= 5;
+}
+
+// The n weekdays ending at (and including) `latest`, oldest first.
+function recentWeekdays(latest, n) {
+  const out = [];
+  const dt = new Date(latest + 'T00:00:00Z');
+  while (out.length < n) {
+    const d = dt.toISOString().slice(0, 10);
+    if (isWeekday(d)) out.unshift(d);
+    dt.setUTCDate(dt.getUTCDate() - 1);
+  }
+  return out;
+}
+
+function monthsToLoad() {
+  const nowBris = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' }).slice(0, 7);
+  const out = [];
+  let [y, m] = FIRST_MONTH.split('-').map(Number);
+  const [ny, nm] = nowBris.split('-').map(Number);
+  while (y < ny || (y === ny && m <= nm)) {
+    out.push(`${y}-${String(m).padStart(2, '0')}`);
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return out;
+}
+
 const ORIGIN_LABEL = 'Pallara';
 const ROUTE_PAIRS = [
   { id: 'route1', destLabel: 'EMP' },
@@ -248,13 +281,16 @@ const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 let allRecordsUnfiltered = [];
 
 async function main() {
-  let records = [];
-  try {
-    const res = await fetch('data/readings.json', { cache: 'no-store' });
-    records = await res.json();
-  } catch (e) {
-    console.error('Failed to load data', e);
-  }
+  const chunks = await Promise.all(monthsToLoad().map(async (month) => {
+    try {
+      const res = await fetch(`data/readings-${month}.json`, { cache: 'no-store' });
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error(`Failed to load ${month}`, e);
+      return [];
+    }
+  }));
+  const records = chunks.flat().filter(r => isWeekday(r.date_brisbane));
   allRecordsUnfiltered = records;
 
   const routesWithData = new Set(records.map(r => r.route_id));
@@ -274,7 +310,7 @@ function renderForRoute(routeId) {
   document.getElementById('pageTitle').textContent = `${ORIGIN_LABEL} ↔ ${pair.destLabel} travel times`;
   document.getElementById('pageSubtitle').textContent =
     `Google Maps' three suggested driving routes between a point in ${ORIGIN_LABEL} and a point in ${pair.destLabel}, ` +
-    `sampled every 10 minutes, 6am–6pm Brisbane time, on 11 weekdays (11–25 Sep 2026). ` +
+    `sampled every 10 minutes, 6am–6pm Brisbane time, every weekday. ` +
     `Before midday: ${ORIGIN_LABEL} → ${pair.destLabel}. From midday: ${pair.destLabel} → ${ORIGIN_LABEL}.`;
 
   const records = allRecordsUnfiltered.filter(r => r.route_id === routeId);
@@ -287,12 +323,11 @@ function renderForRoute(routeId) {
 
 function renderStats(records) {
   const days = new Set(records.map(r => r.date_brisbane));
-  const collectedDays = TARGET_DATES.filter(d => days.has(d)).length;
   const latest = records.reduce((a, r) => (!a || r.timestamp_utc > a.timestamp_utc) ? r : a, null);
   const slowest = records.reduce((a, r) => (!a || r.duration_minutes > a.duration_minutes) ? r : a, null);
 
   const stats = [
-    { value: `${collectedDays}/${TARGET_DATES.length}`, label: 'Weekdays with data' },
+    { value: days.size, label: 'Weekdays with data' },
     { value: records.length, label: 'Total readings' },
     { value: latest ? `${fmtDate(latest.date_brisbane)}, ${fmtTime(latest.time_brisbane)}` : '–', label: 'Latest reading' },
     { value: slowest ? `${slowest.duration_minutes} min` : '–',
@@ -314,9 +349,16 @@ function renderHeatmap(records) {
   const el = document.getElementById('heatmap');
   if (records.length === 0) { el.innerHTML = '<div class="empty">No data yet. The first reading is expected weekday 6am Brisbane time – check back soon.</div>'; return; }
 
+  // The latest HEATMAP_WEEKDAYS weekdays, ending at the most recent date with data.
+  const latestDate = records.reduce((a, r) => (r.date_brisbane > a ? r.date_brisbane : a), '');
+  const earliestDate = records.reduce((a, r) => (r.date_brisbane < a ? r.date_brisbane : a), latestDate);
+  const rowDates = recentWeekdays(latestDate, HEATMAP_WEEKDAYS).filter(d => d >= earliestDate);
+  const shown = new Set(rowDates);
+
   // fastest of the 3 routes per (date, slot)
   const best = {};
   for (const r of records) {
+    if (!shown.has(r.date_brisbane)) continue;
     const key = r.date_brisbane + '|' + roundToSlot(r.time_brisbane);
     if (!best[key] || r.duration_minutes < best[key]) best[key] = r.duration_minutes;
   }
@@ -325,7 +367,7 @@ function renderHeatmap(records) {
 
   const cellW = 11, cellH = 22, rowGap = 4, leftPad = 70, topPad = 16;
   const width = leftPad + SLOTS.length * cellW + 10;
-  const height = topPad + TARGET_DATES.length * (cellH + rowGap);
+  const height = topPad + rowDates.length * (cellH + rowGap);
 
   const seq = ROUTE_COLORS_HEX[isDark() ? 'dark' : 'light'];
   function colorFor(v) {
@@ -340,7 +382,7 @@ function renderHeatmap(records) {
   }
 
   let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
-  TARGET_DATES.forEach((d, ri) => {
+  rowDates.forEach((d, ri) => {
     const y = topPad + ri * (cellH + rowGap);
     svg += `<text x="${leftPad - 8}" y="${y + cellH/2 + 3}" text-anchor="end" class="heat-label">${fmtDate(d)}</text>`;
     SLOTS.forEach((t, ci) => {
@@ -406,7 +448,7 @@ document.getElementById('nextDay').addEventListener('click', () => {
 
 function renderLineSection(records) {
   currentRouteRecords = records;
-  currentDaysWithData = TARGET_DATES.filter(d => records.some(r => r.date_brisbane === d));
+  currentDaysWithData = [...new Set(records.map(r => r.date_brisbane))].sort();
   const select = document.getElementById('daySelect');
   select.innerHTML = currentDaysWithData.map(d => `<option value="${d}">${fmtDate(d)}</option>`).join('');
   currentDayIndex = currentDaysWithData.length - 1;
