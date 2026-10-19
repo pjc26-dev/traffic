@@ -158702,5 +158702,33 @@
     "duration_text": "42 min",
     "distance_text": "25.7 km",
     "via": "Oxley Rd"
+  },
+  {
+    "route_id": "route2",
+    "timestamp_utc": "2026-10-19T20:20:50.272Z",
+    "date_brisbane": "2026-10-20",
+    "time_brisbane": "06:20",
+    "direction": "am",
+    "origin_label": "Pallara",
+    "dest_label": "Ox",
+    "route_index": 1,
+    "duration_minutes": 18,
+    "duration_text": "18 min",
+    "distance_text": "11.5 km",
+    "via": "Blunder Rd/State Route 35"
+  },
+  {
+    "route_id": "route2",
+    "timestamp_utc": "2026-10-19T20:20:50.272Z",
+    "date_brisbane": "2026-10-20",
+    "time_brisbane": "06:20",
+    "direction": "am",
+    "origin_label": "Pallara",
+    "dest_label": "Ox",
+    "route_index": 2,
+    "duration_minutes": 19,
+    "duration_text": "19 min",
+    "distance_text": "12.2 km",
+    "via": "Ritchie Rd and Blunder Rd/State Route 35"
   }
 ]
