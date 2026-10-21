@@ -22,6 +22,8 @@
     --series-4: #eda100; /* yellow  - Thursday */
     --series-5: #e87ba4; /* magenta - Friday */
     --fastest-line: #0b0b0b;
+    --good:    #0ca30c; /* status colours are fixed in both themes */
+    --serious: #ec835a;
 
     --seq-100: #cde2fb;
     --seq-250: #86b6ef;
@@ -128,6 +130,17 @@
   .heat-label { fill: var(--text-secondary); font-size: 10px; }
   #heatmap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -20px; padding: 0 20px; }
   #heatmap svg { display: block; }
+
+  .leave-rows { display: grid; gap: 8px; margin-bottom: 14px; }
+  .leave-row { display: flex; gap: 10px; align-items: baseline; font-size: 13px; }
+  .leave-row.note { color: var(--text-secondary); font-size: 12px; }
+  .leave-row .chip { flex: none; min-width: 68px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); }
+  .leave-row .chip::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--chip-color); }
+  .leave-row .chip.good { --chip-color: var(--good); }
+  .leave-row .chip.avoid { --chip-color: var(--serious); }
+  .leave-row .dim { color: var(--text-secondary); }
+  .leave-hit { fill: transparent; }
+  .legend .swatch.band { opacity: 0.35; }
 </style>
 </head>
 <body>
@@ -148,6 +161,26 @@
     <h2>Travel time by day &amp; time of day</h2>
     <p class="desc">Fastest of the three suggested routes, each 10-minute slot, for the latest 15 weekdays. Darker = slower. This is the quickest way to see which times get bad.</p>
     <div id="heatmap"></div>
+  </div>
+
+  <div class="card">
+    <h2>Best time to leave</h2>
+    <p class="desc">Average drive time by the time you set off, using the quickest of the three suggested routes at each reading. Shaded bands mark the quickest and slowest times to leave.</p>
+    <div class="controls">
+      <button id="leaveAm" type="button" data-dir="am"></button>
+      <button id="leavePm" type="button" data-dir="pm"></button>
+      <div>
+        <label for="leaveDays">Days</label>
+        <select id="leaveDays"></select>
+      </div>
+    </div>
+    <div class="leave-rows" id="leaveSummary"></div>
+    <div class="chart-holder">
+      <svg id="leaveChart"></svg>
+      <div class="empty" id="leaveEmpty" hidden>No readings for this direction yet.</div>
+      <div class="tooltip" id="leaveTooltip"></div>
+    </div>
+    <div class="legend" id="leaveLegend"></div>
   </div>
 
   <div class="card">
@@ -318,6 +351,7 @@ function renderForRoute(routeId) {
   renderHeatmap(records);
   renderLineSection(records);
   renderWeekdaySection(records);
+  renderLeaveSection(records, pair);
   renderTable(records);
 }
 
@@ -682,6 +716,227 @@ function renderWeekdaySection(records) {
       tooltip.style.opacity = 1;
     });
     pt.addEventListener('mouseleave', () => { tooltip.style.opacity = 0; });
+  });
+}
+
+// ---- Best time to leave ---------------------------------------------------
+let leaveRecords = [];
+let leavePair = ROUTE_PAIRS[0];
+let leaveDir = 'pm';
+let leaveDays = 'all';
+let lastLeaveWidth = 0;
+
+document.getElementById('leaveAm').addEventListener('click', () => { leaveDir = 'am'; drawLeave(); });
+document.getElementById('leavePm').addEventListener('click', () => { leaveDir = 'pm'; drawLeave(); });
+document.getElementById('leaveDays').addEventListener('change', (e) => { leaveDays = e.target.value; drawLeave(); });
+
+window.addEventListener('resize', () => {
+  const holder = document.getElementById('leaveChart').closest('.chart-holder');
+  if (Math.abs(holder.clientWidth - lastLeaveWidth) > 8) drawLeave();
+});
+
+function renderLeaveSection(records, pair) {
+  leaveRecords = records;
+  leavePair = pair;
+  const present = WEEKDAY_ORDER.filter(wd => records.some(r => weekdayName(r.date_brisbane) === wd));
+  if (leaveDays !== 'all' && !present.includes(leaveDays)) leaveDays = 'all';
+  document.getElementById('leaveDays').innerHTML =
+    '<option value="all">All weekdays</option>' + present.map(wd => `<option value="${wd}">${wd}s</option>`).join('');
+  document.getElementById('leaveDays').value = leaveDays;
+  drawLeave();
+}
+
+function quantile(sorted, q) {
+  const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+// Average of the quickest suggested route, per departure slot, across days.
+function leaveStats(records, dir, weekday) {
+  const slots = SLOTS.filter(t => (dir === 'am' ? t < '12:00' : t >= '12:00'));
+  const recs = records.filter(r => r.direction === dir
+    && (weekday === 'all' || weekdayName(r.date_brisbane) === weekday));
+
+  // quickest route per reading, then average the readings that share a slot on a day
+  const snapshot = {};
+  for (const r of recs) {
+    const k = r.date_brisbane + '|' + r.time_brisbane;
+    if (snapshot[k] == null || r.duration_minutes < snapshot[k]) snapshot[k] = r.duration_minutes;
+  }
+  const daySlot = {};
+  for (const [k, v] of Object.entries(snapshot)) {
+    const [d, t] = k.split('|');
+    (daySlot[d + '|' + roundToSlot(t)] ||= []).push(v);
+  }
+  const perSlot = {};
+  for (const [k, vs] of Object.entries(daySlot)) {
+    (perSlot[k.split('|')[1]] ||= []).push(vs.reduce((a, b) => a + b, 0) / vs.length);
+  }
+
+  const dayCount = new Set(recs.map(r => r.date_brisbane)).size;
+  const minDays = Math.min(3, dayCount);
+  const pts = slots.map(t => {
+    const vs = (perSlot[t] || []).sort((a, b) => a - b);
+    if (vs.length === 0 || vs.length < minDays) return null;
+    return { t, n: vs.length, avg: vs.reduce((a, b) => a + b, 0) / vs.length, q1: quantile(vs, 0.25), q3: quantile(vs, 0.75) };
+  });
+  return { slots, pts, dayCount };
+}
+
+// Runs of consecutive slots where pred(point) holds.
+function leaveRuns(pts, pred) {
+  const runs = [];
+  let cur = null;
+  pts.forEach((p, i) => {
+    if (p && pred(p)) { if (cur) cur.b = i; else { cur = { a: i, b: i }; runs.push(cur); } }
+    else cur = null;
+  });
+  return runs;
+}
+
+function fmtRun(pts, run) {
+  const a = pts[run.a].t, b = pts[run.b].t;
+  return run.a === run.b ? fmtTime(a) : `${fmtTime(a)}–${fmtTime(b)}`;
+}
+function fmtRunMins(pts, run) {
+  const vs = pts.slice(run.a, run.b + 1).map(p => p.avg);
+  const lo = Math.round(Math.min(...vs)), hi = Math.round(Math.max(...vs));
+  return lo === hi ? `${lo} min` : `${lo}–${hi} min`;
+}
+
+function drawLeave() {
+  const dest = leavePair.destLabel;
+  const amBtn = document.getElementById('leaveAm'), pmBtn = document.getElementById('leavePm');
+  amBtn.textContent = `Morning · ${ORIGIN_LABEL} → ${dest}`;
+  pmBtn.textContent = `Afternoon · ${dest} → ${ORIGIN_LABEL}`;
+  amBtn.classList.toggle('active', leaveDir === 'am');
+  pmBtn.classList.toggle('active', leaveDir === 'pm');
+
+  const svg = document.getElementById('leaveChart');
+  const emptyEl = document.getElementById('leaveEmpty');
+  const summary = document.getElementById('leaveSummary');
+  const legend = document.getElementById('leaveLegend');
+  const tooltip = document.getElementById('leaveTooltip');
+
+  const { slots, pts, dayCount } = leaveStats(leaveRecords, leaveDir, leaveDays);
+  const have = pts.filter(Boolean);
+  if (have.length === 0) {
+    emptyEl.hidden = false;
+    svg.style.display = 'none';
+    svg.innerHTML = '';
+    summary.innerHTML = '';
+    legend.innerHTML = '';
+    return;
+  }
+  emptyEl.hidden = true;
+  svg.style.display = 'block';
+
+  // Quickest / slowest windows: slots within a quarter of the day's spread of the extreme.
+  const best = Math.min(...have.map(p => p.avg)), worst = Math.max(...have.map(p => p.avg));
+  const spread = worst - best;
+  const tol = Math.max(0.5, spread * 0.25);
+  const flat = spread < 1.5;
+  const goodRuns = flat ? [] : leaveRuns(pts, p => p.avg <= best + tol);
+  const badRuns = flat ? [] : leaveRuns(pts, p => p.avg >= worst - tol);
+
+  const lastIdx = slots.length - 1;
+  const goodText = goodRuns.map(r =>
+    `<strong>${fmtRun(pts, r)}</strong> <span class="dim">(about ${fmtRunMins(pts, r)})</span>`).join(' and ');
+  const edgeNote =
+    leaveDir === 'pm' && goodRuns.some(r => r.b === lastIdx) ? ' Readings stop at 6pm, so the last quick window may carry on later.' :
+    leaveDir === 'am' && goodRuns.some(r => r.a === 0) ? ' Readings start at 6am, so the first quick window may reach back earlier.' : '';
+  const badText = badRuns.map(r => `<strong>${fmtRun(pts, r)}</strong> <span class="dim">(about ${fmtRunMins(pts, r)})</span>`).join(' and ');
+  const daysLabel = leaveDays === 'all' ? `${dayCount} weekday${dayCount === 1 ? '' : 's'}` : `${dayCount} ${leaveDays}${dayCount === 1 ? '' : 's'}`;
+
+  summary.innerHTML = flat
+    ? `<div class="leave-row note">Drive time barely changes through this part of the day (about ${Math.round(best) === Math.round(worst) ? Math.round(best) : Math.round(best) + '–' + Math.round(worst)} min), so there is no standout time to leave. Based on ${daysLabel}.</div>`
+    : `<div class="leave-row"><span class="chip good">Quickest</span><span>Leave ${goodText}</span></div>
+       <div class="leave-row"><span class="chip avoid">Slowest</span><span>Avoid ${badText}</span></div>
+       <div class="leave-row note">Leaving in a quick window instead of the slowest one saves about ${Math.round(spread)} min. Based on ${daysLabel}.${edgeNote}</div>`;
+
+  // chart
+  // Drawn at the container's real pixel width (not scaled from a fixed 900px
+  // viewBox) so labels stay readable on a phone.
+  const width = Math.max(300, Math.round(svg.closest('.chart-holder').clientWidth) || 900);
+  lastLeaveWidth = width;
+  const height = 280, padL = 36, padR = 10, padT = 24, padB = 26;
+  const plotW = width - padL - padR, plotH = height - padT - padB;
+  const yMin = Math.max(0, Math.floor(Math.min(...have.map(p => p.q1)) - 2));
+  const yMax = Math.ceil(Math.max(...have.map(p => p.q3)) + 2);
+  const step = plotW / Math.max(1, slots.length - 1);
+  const x = i => padL + i * step;
+  const y = v => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('width', String(width));
+  svg.setAttribute('height', String(height));
+  let s = '';
+
+  const bands = (runs, color, label) => runs.map(r => {
+    const x0 = Math.max(padL, x(r.a) - step / 2), x1 = Math.min(padL + plotW, x(r.b) + step / 2);
+    return `<rect x="${x0}" y="${padT}" width="${x1 - x0}" height="${plotH}" fill="${color}" fill-opacity="0.14" />` +
+      (x0 + 55 > padL + plotW
+        ? `<text class="axis-label" x="${x1 - 3}" y="${padT - 8}" text-anchor="end" style="fill:var(--text-secondary);font-weight:600">${label}</text>`
+        : `<text class="axis-label" x="${x0 + 3}" y="${padT - 8}" style="fill:var(--text-secondary);font-weight:600">${label}</text>`);
+  }).join('');
+  s += bands(goodRuns, 'var(--good)', 'Quickest');
+  s += bands(badRuns, 'var(--serious)', 'Slowest');
+
+  for (let i = 0; i <= 5; i++) {
+    const v = yMin + (yMax - yMin) * (i / 5), yy = y(v);
+    s += `<line class="gridline" x1="${padL}" x2="${width - padR}" y1="${yy}" y2="${yy}" />`;
+    s += `<text class="axis-label" x="${padL - 6}" y="${yy + 3}" text-anchor="end">${Math.round(v)}</text>`;
+  }
+  slots.forEach((t, i) => {
+    if (t.endsWith(':00')) s += `<text class="axis-label" x="${x(i)}" y="${height - 6}" text-anchor="middle">${fmtTime(t)}</text>`;
+  });
+  s += `<line class="baseline" x1="${padL}" x2="${width - padR}" y1="${padT + plotH}" y2="${padT + plotH}" />`;
+
+  // contiguous segments of slots that have data
+  const segs = [];
+  let cur = [];
+  pts.forEach((p, i) => { if (p) cur.push(i); else if (cur.length) { segs.push(cur); cur = []; } });
+  if (cur.length) segs.push(cur);
+
+  segs.forEach(seg => {
+    if (seg.length > 1) {
+      const top = seg.map((i, k) => `${k === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(pts[i].q3).toFixed(1)}`).join(' ');
+      const bottom = [...seg].reverse().map(i => `L${x(i).toFixed(1)},${y(pts[i].q1).toFixed(1)}`).join(' ');
+      s += `<path d="${top} ${bottom} Z" fill="var(--series-1)" fill-opacity="0.16" />`;
+      const line = seg.map((i, k) => `${k === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(pts[i].avg).toFixed(1)}`).join(' ');
+      s += `<path d="${line}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`;
+    }
+  });
+  pts.forEach((p, i) => {
+    if (!p) return;
+    s += `<circle cx="${x(i).toFixed(1)}" cy="${y(p.avg).toFixed(1)}" r="2.5" fill="var(--series-1)" />`;
+  });
+  s += `<circle id="leaveHover" r="5" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2" style="display:none" />`;
+  pts.forEach((p, i) => {
+    if (!p) return;
+    s += `<rect class="leave-hit" x="${(x(i) - step / 2).toFixed(1)}" y="${padT}" width="${step.toFixed(1)}" height="${plotH}" data-i="${i}" />`;
+  });
+  svg.innerHTML = s;
+
+  legend.innerHTML =
+    `<span><span class="swatch" style="background:var(--series-1)"></span>Average drive time</span>` +
+    `<span><span class="swatch band" style="background:var(--series-1)"></span>Typical range (the middle half of days)</span>`;
+
+  const hover = document.getElementById('leaveHover');
+  svg.querySelectorAll('.leave-hit').forEach(r => {
+    r.addEventListener('mouseenter', () => {
+      const p = pts[Number(r.getAttribute('data-i'))];
+      hover.setAttribute('cx', x(Number(r.getAttribute('data-i'))).toFixed(1));
+      hover.setAttribute('cy', y(p.avg).toFixed(1));
+      hover.style.display = 'block';
+      tooltip.textContent = `Leave ${fmtTime(p.t)} – ${p.avg.toFixed(1)} min avg (typical ${Math.round(p.q1)}–${Math.round(p.q3)}, ${p.n} day${p.n === 1 ? '' : 's'})`;
+      const rect = hover.getBoundingClientRect();
+      const parentRect = svg.closest('.chart-holder').getBoundingClientRect();
+      tooltip.style.left = (rect.left - parentRect.left + rect.width / 2) + 'px';
+      tooltip.style.top = (rect.top - parentRect.top) + 'px';
+      tooltip.style.opacity = 1;
+    });
+    r.addEventListener('mouseleave', () => { hover.style.display = 'none'; tooltip.style.opacity = 0; });
   });
 }
 

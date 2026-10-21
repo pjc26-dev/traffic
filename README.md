@@ -39,8 +39,10 @@ messages); they only ever belong in the GitHub secret values below.
   deploy the moment the next one starts rather than queue behind it
   indefinitely (this happened once, for about 30 hours, before the split).
 - `site/index.html` is the dashboard: a route selector, a heatmap of the
-  fastest route by day and time, a per-day chart of all three routes, and a
-  raw data table &mdash; all filtered to the selected route pair.
+  fastest route by day and time, a "best time to leave" view (average drive
+  time by departure time, with the quickest and slowest windows called out,
+  for the morning or afternoon direction and optionally a single weekday), a
+  per-day chart of all three routes, and a raw data table &mdash; all filtered to the selected route pair.
 
 No Google Maps API key/billing was available, so this scrapes the public
 Maps UI rather than calling the Directions API &mdash; the DOM parsing in
