@@ -28,7 +28,10 @@ concurrency:
 
 jobs:
   collect:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: GitHub moved "latest" to Ubuntu 26.04, which
+    # the pinned Playwright version can't install Chromium on, and every real
+    # collection failed from then on. Bump deliberately, together with Playwright.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
