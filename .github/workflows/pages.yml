@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 5
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment_retry.outputs.page_url || steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,7 +80,21 @@ jobs:
         with:
           path: _site
 
+      # deploy-pages occasionally can't see the artifact upload-pages-artifact
+      # just finalized ("Found 0 artifact(s)") - a GitHub-side eventual-
+      # consistency blip that clears within seconds. Retry once after a pause
+      # instead of failing the run (and emailing a failure notification).
       - name: Deploy to GitHub Pages
         id: deployment
         if: steps.check.outputs.changed == 'true'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: Wait before retrying deploy
+        if: steps.check.outputs.changed == 'true' && steps.deployment.outcome == 'failure'
+        run: sleep 20
+
+      - name: Deploy to GitHub Pages (retry)
+        id: deployment_retry
+        if: steps.check.outputs.changed == 'true' && steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
